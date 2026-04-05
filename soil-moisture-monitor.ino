@@ -1,17 +1,69 @@
 #include <M5Unified.h>
+#include <esp_wifi.h>
+#include <esp_bt.h>
 
-void setup(void) {
-  M5.begin();
+static const uint64_t SLEEP_DURATION_US = 60 * 1000000ULL;
+static const gpio_num_t BUTTON_PIN = GPIO_NUM_38;
 
+void updateDisplay(void) {
+  M5.Display.startWrite();
   M5.Display.setEpdMode(epd_mode_t::epd_quality);
   M5.Display.clear(TFT_WHITE);
   M5.Display.setTextColor(TFT_BLACK, TFT_WHITE);
   M5.Display.setTextSize(2);
+
+  int battery = M5.Power.getBatteryLevel();
+  int voltage = M5.Power.getBatteryVoltage();
+
+  M5.Display.setCursor(20, 40);
+  M5.Display.printf("Battery: %d%%\n", battery);
   M5.Display.setCursor(20, 80);
-  M5.Display.println("Hello World!");
+  M5.Display.printf("Voltage: %dmV\n", voltage);
+
+  auto charging = M5.Power.isCharging();
+  M5.Display.setCursor(20, 120);
+  // debug: 0=charge_unknown, 1=is_charging, 2=is_discharging
+  M5.Display.printf("State: %d\n", (int)charging);
+  M5.Display.setCursor(20, 150);
+  M5.Display.printf("Current: %dmA\n", M5.Power.getBatteryCurrent());
+  M5.Display.endWrite();
+  M5.Display.waitDisplay();
+}
+
+static const gpio_num_t POWER_HOLD_PIN = GPIO_NUM_12;
+
+void enterDeepSleep(void) {
+  M5.Power.setLed(0);
+  M5.Power.setExtOutput(false);
+
+  // GPIO 12をHIGHに保持してバッテリー電源を維持
+  gpio_hold_en(POWER_HOLD_PIN);
+  gpio_deep_sleep_hold_en();
+
+  esp_sleep_enable_timer_wakeup(SLEEP_DURATION_US);
+  esp_sleep_enable_ext0_wakeup(BUTTON_PIN, 0);
+  esp_deep_sleep_start();
+}
+
+void setup(void) {
+  auto cfg = M5.config();
+  cfg.clear_display = false;
+  cfg.output_power = false;
+  cfg.internal_imu = false;
+  cfg.internal_rtc = false;
+  cfg.internal_mic = false;
+  cfg.internal_spk = false;
+  cfg.external_imu = false;
+  cfg.external_rtc = false;
+  cfg.led_brightness = 0;
+  M5.begin(cfg);
+
+  esp_wifi_stop();
+  esp_bt_controller_disable();
+
+  updateDisplay();
+  enterDeepSleep();
 }
 
 void loop(void) {
-  M5.update();
-  M5.delay(100);
 }
