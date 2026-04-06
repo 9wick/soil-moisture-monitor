@@ -1,6 +1,7 @@
 #include <M5Unified.h>
 #include <esp_wifi.h>
 #include <esp_bt.h>
+#include "driver/rtc_io.h"
 
 static const uint64_t SLEEP_DURATION_US = 60 * 1000000ULL;
 static const gpio_num_t BUTTON_PIN = GPIO_NUM_38;
@@ -33,16 +34,18 @@ void updateDisplay(void) {
 static const gpio_num_t POWER_HOLD_PIN = GPIO_NUM_12;
 
 void enterDeepSleep(void) {
-  M5.Power.setLed(0);
   M5.Power.setExtOutput(false);
+  digitalWrite(10, HIGH);
 
-  // GPIO 12をHIGHに保持してバッテリー電源を維持
-  gpio_hold_en(POWER_HOLD_PIN);
-  gpio_deep_sleep_hold_en();
+  // GPIO12をRTC GPIOとして制御（bokunimo方式）
+  rtc_gpio_init(POWER_HOLD_PIN);
+  rtc_gpio_set_direction(POWER_HOLD_PIN, RTC_GPIO_MODE_OUTPUT_ONLY);
+  rtc_gpio_set_level(POWER_HOLD_PIN, 1);
+  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
 
   esp_sleep_enable_timer_wakeup(SLEEP_DURATION_US);
   esp_sleep_enable_ext0_wakeup(BUTTON_PIN, 0);
-  esp_deep_sleep_start();
+  esp_deep_sleep(SLEEP_DURATION_US);
 }
 
 void setup(void) {
@@ -57,6 +60,8 @@ void setup(void) {
   cfg.external_rtc = false;
   cfg.led_brightness = 0;
   M5.begin(cfg);
+  pinMode(10, OUTPUT);
+  digitalWrite(10, HIGH);
 
   esp_wifi_stop();
   esp_bt_controller_disable();
