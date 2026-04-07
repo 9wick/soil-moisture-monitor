@@ -265,10 +265,7 @@ void drawSensorPanel(int x, int y, int w, const char *label, uint8_t pf, bool ok
   M5.Display.print(statusLabels[level]);
 }
 
-void drawBatteryStatus(int x, int y) {
-  int pct = M5.Power.getBatteryLevel();
-  int mv = M5.Power.getBatteryVoltage();
-
+void drawBatteryStatus(int x, int y, int pct, int mv) {
   // Battery icon (20x8, inner 16x4 → 10%刻みで視認可)
   M5.Display.drawRect(x, y, 20, 8, TFT_BLACK);
   M5.Display.fillRect(x + 20, y + 2, 2, 4, TFT_BLACK);
@@ -284,11 +281,10 @@ void drawBatteryStatus(int x, int y) {
 
 // ──── BLE Advertising ────
 
-void advertiseSensorData(uint8_t pf1, uint8_t pf2) {
+void advertiseSensorData(uint8_t pf1, uint8_t pf2, int battPct, uint16_t battMv) {
   BLEDevice::init("");
 
   auto dt = M5.Rtc.getDateTime();
-  uint16_t battMv = M5.Power.getBatteryVoltage();
 
   char mfr[14];
   mfr[0] = 0xFF; mfr[1] = 0xFF;
@@ -298,7 +294,7 @@ void advertiseSensorData(uint8_t pf1, uint8_t pf2) {
   mfr[6] = (char)dt.date.date;
   mfr[7] = (char)dt.time.hours;
   mfr[8] = (char)dt.time.minutes;
-  mfr[9] = (char)M5.Power.getBatteryLevel();
+  mfr[9] = (char)battPct;
   mfr[10] = battMv & 0xFF;
   mfr[11] = (battMv >> 8) & 0xFF;
   mfr[12] = (sensor1Ok ? 0x80 : 0x00) | (pf1 & 0x7F);
@@ -326,7 +322,7 @@ static int gDebugLevel1 = 0;
 static int gDebugLevel2 = 0;
 static bool gPrev37 = true, gPrev39 = true;
 
-void updateDisplay(uint8_t pf1, uint8_t pf2) {
+void updateDisplay(uint8_t pf1, uint8_t pf2, int battPct, int battMv) {
   M5.Display.startWrite();
   M5.Display.setEpdMode(epd_mode_t::epd_quality);
   M5.Display.setRotation(1);
@@ -338,7 +334,7 @@ void updateDisplay(uint8_t pf1, uint8_t pf2) {
   drawSensorPanel(2, 15, 96, "#1", pf1, sensor1Ok);
   drawSensorPanel(102, 15, 96, "#2", pf2, sensor2Ok);
 
-  drawBatteryStatus(4, 190);
+  drawBatteryStatus(4, 190, battPct, battMv);
 
   auto dt = M5.Rtc.getDateTime();
   char timeBuf[18];
@@ -382,14 +378,18 @@ void setup(void) {
     gDebugMode = true;
     sensor1Ok = true;
     sensor2Ok = true;
-    updateDisplay(LEVEL_TO_PF[gDebugLevel1], LEVEL_TO_PF[gDebugLevel2]);
+    int bp = M5.Power.getBatteryLevel();
+    int bv = M5.Power.getBatteryVoltage();
+    updateDisplay(LEVEL_TO_PF[gDebugLevel1], LEVEL_TO_PF[gDebugLevel2], bp, bv);
   } else {
     uint8_t pf1, pf2;
     readSensors(pf1, pf2);
-    updateDisplay(pf1, pf2);
+    int battPct = M5.Power.getBatteryLevel();
+    uint16_t battMv = M5.Power.getBatteryVoltage();
+    updateDisplay(pf1, pf2, battPct, battMv);
     M5.Display.sleep();
     M5.Power.setExtOutput(false);
-    advertiseSensorData(pf1, pf2);
+    advertiseSensorData(pf1, pf2, battPct, battMv);
     M5.Power.timerSleep(SLEEP_SECONDS);
   }
 }
@@ -412,7 +412,9 @@ void loop(void) {
   gPrev39 = cur39;
 
   if (changed) {
-    updateDisplay(LEVEL_TO_PF[gDebugLevel1], LEVEL_TO_PF[gDebugLevel2]);
+    int bp = M5.Power.getBatteryLevel();
+    int bv = M5.Power.getBatteryVoltage();
+    updateDisplay(LEVEL_TO_PF[gDebugLevel1], LEVEL_TO_PF[gDebugLevel2], bp, bv);
   }
 
   delay(50);
