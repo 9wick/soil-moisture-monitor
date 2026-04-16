@@ -8,7 +8,9 @@
 
 static const uint8_t SENSOR1_ADDR = 0x37;
 static const uint8_t SENSOR2_ADDR = 0x38;
-static const int SLEEP_SECONDS = 60;
+static const int SLEEP_SECONDS = 60 * 20;
+static const int I2C_SDA_PIN = 26;
+static const int I2C_SCL_PIN = 25;
 
 SfeCY8CMBR3ArdI2C sensor1;
 SfeCY8CMBR3ArdI2C sensor2;
@@ -21,7 +23,7 @@ static bool sensor1Ok = false;
 static bool sensor2Ok = false;
 
 bool initSensor(SfeCY8CMBR3ArdI2C &sensor, uint8_t addr) {
-  if (!sensor.begin(addr, Wire1)) return false;
+  if (!sensor.begin(addr, Wire)) return false;
   if (!sensor.defaultMoistureSensorInit()) return false;
   return true;
 }
@@ -37,17 +39,28 @@ bool waitForBaseline(SfeCY8CMBR3ArdI2C &sensor, unsigned long timeoutMs) {
 }
 
 void readSensors(uint8_t &pf1, uint8_t &pf2) {
-  Serial.begin(115200);
-  Wire1.begin(21, 22);
-  Wire1.setTimeOut(500);
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+  Wire.setTimeOut(300);
 
+  // 初期化開始を先にやる
   sensor1Ok = initSensor(sensor1, SENSOR1_ADDR);
+  sensor2Ok = initSensor(sensor2, SENSOR2_ADDR);
+
   if (sensor1Ok) sensor1Ok = waitForBaseline(sensor1, 1000);
   pf1 = sensor1Ok ? sensor1.readCapacitancePF() : 0;
 
-  sensor2Ok = initSensor(sensor2, SENSOR2_ADDR);
   if (sensor2Ok) sensor2Ok = waitForBaseline(sensor2, 1000);
   pf2 = sensor2Ok ? sensor2.readCapacitancePF() : 0;
+}
+
+void logSensorSummary(uint8_t pf1, uint8_t pf2, int battPct, uint16_t battMv) {
+  Serial.println();
+  Serial.println("=== Soil Moisture Monitor ===");
+  Serial.printf("I2C pins: SDA=G%d SCL=G%d\n", I2C_SDA_PIN, I2C_SCL_PIN);
+  Serial.printf("sensor1: %s, pf=%u\n", sensor1Ok ? "ok" : "ng", pf1);
+  Serial.printf("sensor2: %s, pf=%u\n", sensor2Ok ? "ok" : "ng", pf2);
+  Serial.printf("battery: %d%%, %umV\n", battPct, battMv);
+  Serial.printf("sleep: %ds\n", SLEEP_SECONDS);
 }
 
 int moistureToPercent(uint8_t pf) {
@@ -351,6 +364,7 @@ void updateDisplay(uint8_t pf1, uint8_t pf2, int battPct, int battMv) {
 }
 
 void setup(void) {
+
   auto cfg = M5.config();
   cfg.clear_display = false;
   cfg.output_power = false;
@@ -362,22 +376,27 @@ void setup(void) {
   cfg.external_rtc = false;
   cfg.led_brightness = 0;
   M5.begin(cfg);
+
+  //green led消灯
   pinMode(10, OUTPUT);
   digitalWrite(10, HIGH);
 
   esp_wifi_stop();
 
   // G38を押しながら起動 → デバッグモード
-  pinMode(37, INPUT_PULLUP);
   pinMode(38, INPUT_PULLUP);
-  pinMode(39, INPUT_PULLUP);
-  delay(50);
   bool enterDebug = (digitalRead(38) == LOW);
 
   if (enterDebug) {
+    // setup for debug mode
+    pinMode(39, INPUT_PULLUP);
+    pinMode(37, INPUT_PULLUP);
+    Serial.begin(115200);
+    delay(50);
     gDebugMode = true;
     sensor1Ok = true;
     sensor2Ok = true;
+    Serial.println("debug mode: on");
     int bp = M5.Power.getBatteryLevel();
     int bv = M5.Power.getBatteryVoltage();
     updateDisplay(LEVEL_TO_PF[gDebugLevel1], LEVEL_TO_PF[gDebugLevel2], bp, bv);
